@@ -1,0 +1,200 @@
+\documentclass[titlepage]{article}
+\setlength{\parskip}{\baselineskip}
+\setlength{\parindent}{0pt}
+
+\usepackage{blindtext}
+\usepackage[a4paper, total={6in, 8in}]{geometry}
+\usepackage{fancyhdr}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{setspace}
+\usepackage{Sweave}
+
+\DefineVerbatimEnvironment{Sinput}{Verbatim} {xleftmargin=2em,frame=single}
+\DefineVerbatimEnvironment{Soutput}{Verbatim}{xleftmargin=2em,frame=single}
+
+\author{Englund, Kostecka, Kreuzbichler, Pfeiffenberger}
+\title{Macroeconometrics - Assignment II}
+
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{Assignment II}
+\lhead{Macroeconomics}
+\cfoot{Page \thepage}
+
+\onehalfspacing
+
+\begin{document}
+<<echo=FALSE>>=
+knitr::opts_chunk$set(eval = TRUE, echo = TRUE, results = "hide")
+@
+
+\SweaveOpts{concordance=TRUE}
+\maketitle
+
+\section{Part I: Writing complex functions in R}
+\subsection{Task 1: Functions to estimate regression models using the SSVS prior}
+Read the following introduction to functions in R (Advanced R by Hadley Wickham). In this task, you have to write a function that performs Bayesian inference in a regression model with a stochastic search variable selection prior based on the code discussed in class (see code SSVS.R). Use the economic growth dataset of Fernandez, Ley, and Steel (2001, J. Applied Econometrics) provided in the BMS package in R. To get this data, type data(datafls) after loading the BMS package.
+
+\begin{itemize}
+\item Write a function that takes the explanatory variables \textbf{\textit{X}} as well as the endoge- nous variable \textbf{\textit{y}} as input. In the growth dataset, the first column contains the endogenous variable whereas the remaining columns are the explanatory variables. Think about what additional inputs might be helpful! (Hint: you might want to vary \textit{nsave} and \textit{nburn}.) Also think carefully about the potential output of the function! (Hint: R functions can only return a single object, so use a list object.)
+\item Run the function using different values for tau0 and tau1. What happens to the posterior inclusion probabilities (PIP.mean) if tau0 is set equal to 1e-15? Describe this finding verbally and graphically!
+\item The variables in X all feature a different scale. This causes problems since the simple implementation of the code sets tau0 and tau1 equal to fixed values that are independent of the scaling of the data. Try to standardize the data such that all columns of X (and y) have mean zero and variance one.
+\end{itemize}
+
+\subsubsection{Writing a function}
+We create a function called \textit{bayes} whose formals, i.e. arguments that the function takes as input, are varibles \textit{X}, \textit{Y}, \textit{nsave}, \textit{nburn}, \textit{tau0} and \textit{tau1}. The variables \textit{nsave}, \textit{nburn}, \textit{tau0} and \textit{tau1} have a preset default value that can be overwritten, otherwise the function call can ommit these variables and use the default values.
+
+To import the growth dataset, we use the following commands:
+<<import_data>>=
+library(BMS)
+Y<-matrix(datafls$y)
+X<-as.matrix(datafls[2:42])
+@
+
+<<libraries,echo=FALSE>>=
+library(ggplot2)
+library(reshape2)
+@
+
+
+The function header (formals) looks like this: 
+<<function1,eval=FALSE>>=
+bayes <- function(X,Y,nsave=1000,nburn=1000, tau0=0.01, tau1=10) {
+  
+}
+@
+
+We then proceed with defining the dynamics of the function (body). The output is a matrix consisting of three columns; PIP.mean, A.mean, SIG.mean:
+<<function2,tidy=TRUE>>=
+bayes <- function(X,Y,nsave=1000,nburn=1000, tau0=0.01, tau1=10) {
+  #Start with actual estimation and Gibbs preliminaries
+  ntot <- nsave+nburn
+  #Prior prelims for SSVS
+  #tau0 <- 0.01
+  #tau1 <- 10
+  
+  s0 <- 0.01
+  S0 <- 0.01
+  #Construct Y and X
+  N <- nrow(Y)
+  K <- ncol(X)
+  
+  #Get OLS quantities
+  A.OLS <- solve(crossprod(X))%*%crossprod(X,Y)
+  SSE <- crossprod(Y-X%*%A.OLS)
+  SIG.OLS <- SSE/(N-K)
+  #In the next step, create storage matrices for Gibbs loop and initialize prior
+  gamma <- matrix(1,K,1) #indicators, start with full model
+  sigma2.draw <- as.numeric(SIG.OLS)
+  V.prior <- diag(as.numeric(gamma*tau1+(1-gamma)*tau0))
+  
+  ALPHA.store <- matrix(NA,nsave,K)
+  SIGMA.store <- matrix(NA,nsave,1)
+  Gamma.store <- matrix(NA,nsave,K)
+  
+  for (irep in 1:ntot){
+    #Draw ALPHA given rest from multivariate normal
+    V.post <- solve(crossprod(X)*1/sigma2.draw+diag(1/diag(V.prior)))
+    A.post <- V.post%*%(crossprod(X,Y)*1/sigma2.draw)
+    A.draw <- A.post+t(chol(V.post))%*%rnorm(K)
+    
+    #Draw indicators conditional on ALPHA
+    for (jj in 1:K){
+      p0 <- dnorm(A.draw[[jj]],0,sqrt(tau0))
+      p1 <- dnorm(A.draw[[jj]],0,sqrt(tau1))
+      p11 <- p1/(p0+p1)
+      
+      if (p11>runif(1)) gamma[[jj]] <- 1 else gamma[[jj]] <- 0
+    }
+    #Construct prior VC matrix conditional on gamma
+    V.prior <- diag(as.numeric(gamma*tau1+(1-gamma)*tau0))
+    
+    #Simulate sigma2 from inverse Gamma
+    S.post <- crossprod(Y-X%*%A.draw)/2+S0
+    s.post <- S0+N/2
+    sigma2.draw <- 1/rgamma(1,s.post,S.post)  
+    
+    if (irep>nburn){
+      ALPHA.store[irep-nburn,] <- A.draw
+      SIGMA.store[irep-nburn,] <- sigma2.draw
+      Gamma.store[irep-nburn,] <- gamma
+    }
+    #print(irep)
+  }
+  #Calculate posterior inclusion probabilities
+  PIP.mean <- apply(Gamma.store,2,mean)
+  A.mean <- apply(ALPHA.store,2,mean)
+  SIG.mean <- apply(SIGMA.store,2,mean)
+  
+  return(cbind(PIP.mean,A.mean,SIG.mean))
+}
+@
+
+\subsubsection{Testing different values for tau0 and tau1}
+
+For smaller tau0 values, the posterior inclusion probabilities mean (PIP.mean) is gradually smaller. For tau0 set to 1e-15, the PIP.mean tends to alternate between 0 and 1, as the figure illustrates:
+
+<<echo=FALSE>>=
+pip1 <- bayes(X,Y)[,1] #tau0=0.01, tau1=10
+pip2 <- bayes(X,Y,tau0=0.001)[,1]
+pip3 <- bayes(X,Y,tau0=0.00001)[,1]
+pip4 <- bayes(X,Y,tau0=1*10^-15)[,1]
+pip_df <- as.data.frame(cbind(scale=1:41,pip1,pip2,pip3,pip4))
+pip_df <- melt(pip_df, id.vars='scale',variable.name = 'series')
+pip_plot <- ggplot(pip_df, aes(scale,value)) + geom_line(aes(colour = series))+ylab("PIP mean")+xlab("")
+@
+
+<<results=tex,fig=TRUE,echo=FALSE,height=3>>=
+pip_plot
+@
+
+\subsubsection{Standardize data}
+To standardize our input data, we use the \textit{scale()} function. We can verify that the mean is 0 and standard deviation 1 as we would expect like this:
+
+<<standardize_data,echo=F,results=tex>>=
+X_norm <- scale(X)
+Y_norm <- scale(Y)
+
+matr_norm <- matrix(cbind(mean(X_norm),mean(Y_norm),sd(X_norm),sd(Y_norm)),nrow=2)
+colnames(matr_norm) <- c("Std","Mean")
+rownames(matr_norm) <- c("X","Y")
+matr_norm
+
+matr <- matrix(cbind(mean(X),mean(Y),sd(X),sd(Y)),nrow=2)
+colnames(matr) <- c("Std","Mean")
+rownames(matr) <- c("X","Y")
+matr
+@
+
+Plotting the difference in PIP.mean for the standardized and non-standardized dataset:
+
+<<results=tex,fig=TRUE,echo=FALSE,height=3>>=
+pip_df <- as.data.frame(cbind(scale=1:41,bayes(X,Y)))
+X_norm <- scale(X)
+Y_norm <- scale(Y)
+pip_df_stand <- as.data.frame(cbind(scale=1:41,bayes(X_norm,Y_norm)))
+pip_plot_diff <- ggplot(pip_df_stand, aes(scale, PIP.mean)) +
+  geom_line() +
+  geom_line(data=pip_df, aes(y=PIP.mean), colour='red')
+pip_plot_diff
+@
+
+
+\section{Part II: Model uncertainty in economic growth regressions}
+\subsection{Task 1: Bayesian Normal Linear Regression}
+Read the paper by Fernandez, Ley and Steel (2001, J. Applied Econometrics) as well as Chapter 11 in Gary Koop’s textbook. Consider the data for the paper by Fernandez, Ley and Steel (2001, J. Applied Econometrics), available from the BMS package
+
+\begin{itemize}
+\item Reproduce the results in Table 11.1 (in Koop) using the BMS package in R.
+\item Use your custom function for the SSVS prior to reproduce Table 11.1.
+\item How do results differ? To what extent is this related to the specific choices of tau0 and tau1?
+\end{itemize}
+
+\subsubsection{Reproducing Data}
+
+\subsubsection{Custom Function for the SSVS Prior}
+
+\subsubsection{Analyzing Results}
+
+\end{document}
