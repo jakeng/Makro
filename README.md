@@ -1,12 +1,18 @@
 # Makro
 
+## To-do list:
+
+- Finish tasks that are not struck through
+- Create a Latex file
+- Upload tentative versions to git
+
 ## Part I: Writing complex functions in R
 
 ### Task 1: Functions to estimate regression models using the SSVS prior
 
 Read the following introduction to functions in R (Advanced R by Hadley Wickham). In this task, you have to write a function that performs Bayesian inference in a regression model with a stochastic search variable selection prior based on the code discussed in class (see code SSVS.R). Use the economic growth dataset of Fernandez, Ley, and Steel (2001, J. Applied Econometrics) provided in the BMS package in R. To get this data, type data(datafls) after loading the BMS package.
 
-- Write a function that takes the explanatory variables X as well as the endoge- nous variable y as input. In the growth dataset, the first column contains the endogenous variable whereas the remaining columns are the explanatory variables. Think about what additional inputs might be helpful! (Hint: you might want to vary nsave and nburn.) Also think carefully about the potential output of the function! (Hint: R functions can only return a single object, so use a list object.)
+- ~~Write a function that takes the explanatory variables X as well as the endoge- nous variable y as input. In the growth dataset, the first column contains the endogenous variable whereas the remaining columns are the explanatory variables. Think about what additional inputs might be helpful! (Hint: you might want to vary nsave and nburn.) Also think carefully about the potential output of the function! (Hint: R functions can only return a single object, so use a list object.)~~
 
 - Run the function using different values for τ0 and τ1. What happens to the posterior inclusion probabilities (PIP.mean) if τ0 is set equal to 1e−15? Describe this finding verbally and graphically!
 
